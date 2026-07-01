@@ -2478,8 +2478,9 @@ with gr.Blocks(theme=gr.themes.Soft(), fill_width=True) as app:
                   gr.Markdown("### Generated `semopy` Script")
 
                   # This holds the accumulated string
-                  model_display = gr.Code(label="Model Syntax", language="python", lines=15)
-
+                #   model_display = gr.Code(label="Model Syntax", language="python", lines=15)
+                  model_display = gr.Textbox(label="Model Syntax", lines=15, max_lines=25, interactive=True, placeholder="Your SEM rules will appear here...")
+                  
                   with gr.Row():
                       clear_btn = gr.Button("Clear All")
                       undo_btn = gr.Button("Undo Last Rule")
