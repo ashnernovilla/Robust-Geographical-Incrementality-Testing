@@ -1,0 +1,32 @@
+# Data & Math
+pandas
+numpy<2.0.0
+scipy
+networkx
+
+# Visualization
+matplotlib
+plotly
+seaborn
+
+# Machine Learning & Statistics
+scikit-learn
+quantile-forest
+statsmodels
+tfcausalimpact
+semopy
+lingam
+
+# APIs & UI
+gradio
+openai
+
+# Utilities
+Pillow
+ipython
+ipykernel
+gspread-dataframe
+xlsxwriter
+
+# Custom Repositories
+git+https://github.com/google/matched_markets.git
