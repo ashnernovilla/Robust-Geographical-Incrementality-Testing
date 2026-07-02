@@ -243,16 +243,19 @@ def run_clustering(df, target_col, cost_col, additional_cols, date_col, geo_col,
             color='Cluster_Label',
             hover_name=geo_col,
             hover_data=hover_data_dict,
-            title=f"Market Cohorts (DBSCAN) | Hover for Geo Details",
+            title="Market Cohorts (DBSCAN) | Hover for Geo Details",
             labels={'avg_revenue': 'Avg Revenue', 'avg_cost': x_axis_label, 'Cluster_Label': 'Cohort'},
             template="plotly_white",
-            color_discrete_map={"Noise (Outliers)": "rgba(200, 200, 200, 0.6)"}
+            size_max=45,  # FIX 1: Caps the maximum bubble size so outliers don't shrink the rest
+            # FIX 2: Darkened the Noise color so it doesn't vanish into the white background!
+            color_discrete_map={"Noise (Outliers)": "rgba(40, 40, 40, 0.85)"} 
         )
 
         if size_variable:
-            fig.update_traces(marker=dict(sizemin=5, sizemode='area'))
+            # FIX 3: Increased sizemin from 5 to 10 so small markets are highly visible
+            fig.update_traces(marker=dict(sizemin=10, sizemode='area', line=dict(width=1, color='DarkSlateGrey')))
         else:
-            fig.update_traces(marker=dict(size=12))
+            fig.update_traces(marker=dict(size=14, line=dict(width=1, color='DarkSlateGrey')))
 
         fig.update_layout(xaxis_tickformat='$,.0f', yaxis_tickformat='$,.0f')
         # =====================================================================
