@@ -65,13 +65,7 @@ The system operationalizes a linear, five-stage methodological workflow transiti
 * Autocorrelation is scanned via Durbin-Watson diagnostics.  
 * Model drift is actively monitored using Brownian Bridge diagnostics.
 
-### **Stage 4: Analysis (Triangulated Estimation)**
-
-* Following the physical experiment, the system mathematically triangulates the incremental lift to prevent algorithmic bias.  
-* Three independent frameworks are deployed: Time-Based Regression, Quantile Random Forest, and Bayesian Structural Time-Series (CausalImpact).  
-* This ensemble method ensures robust, decision-ready confidence intervals.
-
-### **Stage 5: Recommendation & Export**
+### **Stage 4: Recommendation & Export**
 
 * Econometric outputs are translated into executive-ready visual waterfalls and cumulative lift charts via a zero-touch Gradio UI.  
 * The final ROI is instantly verified, closing the loop from causal hypothesis to financial return.

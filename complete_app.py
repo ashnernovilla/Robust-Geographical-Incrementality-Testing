@@ -19,7 +19,6 @@ print("=========================================================================
 import datetime
 from datetime import timedelta
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 import plotly.express as px
 import plotly.graph_objects as go
 import networkx as nx
@@ -32,8 +31,8 @@ import re
 from IPython.display import display
 from IPython.core.interactiveshell import InteractiveShell
 
+
 import warnings
-import pprint
 
 from matched_markets.methodology.common_classes import GeoAssignment
 from matched_markets.methodology import geoeligibility
@@ -123,7 +122,7 @@ def run_clustering(df, target_col, cost_col, additional_cols, date_col, geo_col,
 
     # 1. ❌ Removed 'file' check, replaced with 'df'
     if df is None or not target_col or not cost_col or not geo_col:
-      return "⚠️ Please upload a dataset and select all required columns.", None, *([gr.update(visible=False)] * 12), None
+      return "⚠️ Please upload a dataset and select all required columns.", None, *([gr.update(visible=False)] * 11), None
 
     try:
         # 2. 🧠 PARSE SEM WEIGHTS
@@ -228,18 +227,12 @@ def run_clustering(df, target_col, cost_col, additional_cols, date_col, geo_col,
             if col not in [target_col, cost_col]:
                 hover_data_dict[f'avg_{col}'] = ':.2f'
 
-        # 5B. Determine Bubble Size 
+        # 5B. Determine Bubble Size
         size_variable = None
         if additional_cols:
-            # Safely loop through the selected columns until we find one that isn't Target or Cost
-            for col in additional_cols:
-                if col not in [target_col, cost_col]:
-                    size_variable = f'avg_{col}'
-                    
-                    # Optional: Plotly crashes if bubble sizes are negative. 
-                    # We can take the absolute value just to be completely safe in Docker.
-                    geo_features[size_variable] = geo_features[size_variable].abs()
-                    break  # Stop as soon as we find a valid size variable!
+            first_extra = additional_cols[0]
+            if first_extra not in [target_col, cost_col]:
+                size_variable = f'avg_{first_extra}'
 
         # 5C. Generate the Scatter Plot
         fig = px.scatter(
@@ -279,11 +272,10 @@ def run_clustering(df, target_col, cost_col, additional_cols, date_col, geo_col,
             gr.update(choices=cluster_choices, visible=True, interactive=True),
             gr.update(visible=True, interactive=True),
             gr.update(visible=True, interactive=True),
-            gr.update(visible=True, interactive=True),    #minimum_detectable_iROAS,
             gr.update(visible=True, interactive=True),
-            gr.update(visible=True, interactive=True),    #max_allowed_cost
-            gr.update(visible=True, interactive=True),    #planned_budget,
-            gr.update(visible=True, interactive=True),    #max_treat_geos
+            gr.update(visible=True, interactive=True),
+            gr.update(visible=False, interactive=False),
+            gr.update(visible=True, interactive=True),
             gr.update(visible=True, interactive=True),
             gr.update(visible=True, interactive=True),
             gr.update(visible=True, interactive=True),
@@ -292,7 +284,7 @@ def run_clustering(df, target_col, cost_col, additional_cols, date_col, geo_col,
         )
 
     except Exception as e:
-        return f"❌ Error: {str(e)}", None, *([gr.update(visible=False)] * 12), None
+        return f"❌ Error: {str(e)}", None, *([gr.update(visible=False)] * 11), None
 
 
 def update_geo_dropdowns(df_clustered, cluster_selection, geo_col):
@@ -317,7 +309,7 @@ def update_geo_dropdowns(df_clustered, cluster_selection, geo_col):
         return gr.update(choices=[]), gr.update(choices=[]), gr.update(choices=[])
 
 
-def run_match_market(df_clustered, cluster_selection, target_col, cost_col, geo_col, date_col, target_type, test_direction, iroas_or_cpa, exp_length, budget, budget_cut, max_treat_geos, req_geo, excl_geo, excl_comp):
+def run_match_market(df_clustered, cluster_selection, target_col, geo_col, date_col, target_type, test_direction, iroas_or_cpa, exp_length, budget, budget_cut, req_geo, excl_geo, excl_comp):
     if df_clustered is None or df_clustered.empty:
         return "⚠️ No clustered data found.", None, None, None, None, gr.update(visible=False), gr.update(visible=False), None
     if not cluster_selection:
@@ -350,8 +342,7 @@ def run_match_market(df_clustered, cluster_selection, target_col, cost_col, geo_
             geo_ratio_tolerance=np.inf,
             treatment_share_range=(0.0001, 0.9999),
             budget_range=(0.1, float(budget)),
-            # treatment_geos_range=(3, 20),
-            treatment_geos_range=(3, int(max_treat_geos)), # <--- Updated to use the slider
+            treatment_geos_range=(3, 20),
             control_geos_range=(1, total_sweet_spot_geos - 1),
             n_geos_max=total_sweet_spot_geos,
             n_pretest_max=n_pretest,
@@ -446,8 +437,6 @@ def run_match_market(df_clustered, cluster_selection, target_col, cost_col, geo_
 
             test_baseline_revenue = pseudo_test_data[pseudo_test_data[geo_col].isin(treat_geos)][target_col].sum()
             train_baseline_revenue = train_data[train_data[geo_col].isin(treat_geos)][target_col].sum()
-            
-            train_baseline_cost = train_data[train_data[geo_col].isin(treat_geos)][cost_col].sum()
 
             if test_baseline_revenue > 0:
                 dynamic_lift_pct = expected_impact_absolute / test_baseline_revenue
@@ -478,7 +467,6 @@ def run_match_market(df_clustered, cluster_selection, target_col, cost_col, geo_
                 "Brownian Bridge": bb_test_status,
                 "Durbin-Watson": dw_test_status,
                 "Train Baseline Revenue": train_baseline_revenue,
-                "Train Baseline Cost": train_baseline_cost,
                 "Estimated Lift": estimated_lift_dollars,
                 "Absolute % error": absolute_error_pct * 100
             })
@@ -499,21 +487,15 @@ def run_match_market(df_clustered, cluster_selection, target_col, cost_col, geo_
         formatted_df = df_geolift.copy()
         target_prefix = "$" if target_type == "Revenue" else ""
         target_label = "Revenue" if target_type == "Revenue" else target_type
-        
-        is_lever_money = 'spend' in str(cost_col).lower() or 'cost' in str(cost_col).lower()
-        cost_label_header = "Spend" if is_lever_money else "Volume"
-        cost_prefix = "$" if is_lever_money else ""
 
         formatted_df = formatted_df.rename(columns={
             "Train Baseline Revenue": f"Pre-Test Baseline {target_label}",
-            "Train Baseline Cost": f"Pre-Test Baseline {cost_label_header}", # ---> COST
             "Estimated Lift": f"Estimated Synthetic Lift {target_label}",
             "Absolute % error": f"Lift Estimation Error (%)",
         })
 
         formatted_df['Correlation'] = formatted_df['Correlation'].apply(lambda x: f"{x:.4f}")
         formatted_df[f"Pre-Test Baseline {target_label}"] = formatted_df[f"Pre-Test Baseline {target_label}"].apply(lambda x: f"{target_prefix}{x:,.0f}")
-        formatted_df[f"Pre-Test Baseline {cost_label_header}"] = formatted_df[f"Pre-Test Baseline {cost_label_header}"].apply(lambda x: f"{cost_prefix}{x:,.0f}")
         formatted_df[f"Estimated Synthetic Lift {target_label}"] = formatted_df[f"Estimated Synthetic Lift {target_label}"].apply(lambda x: f"{target_prefix}{x:,.0f}")
         formatted_df['Lift Estimation Error (%)'] = formatted_df['Lift Estimation Error (%)'].round(2).astype(str) + "%"
 
@@ -532,8 +514,7 @@ def run_match_market(df_clustered, cluster_selection, target_col, cost_col, geo_
             df_geolist,
             matched_designs,
             optimal_testing_data,
-            # gr.update(choices=match_choices, visible=True, interactive=True),
-            gr.update(choices=match_choices, value=match_choices[0] if match_choices else None, visible=True, interactive=True),
+            gr.update(choices=match_choices, visible=True, interactive=True),
             gr.update(visible=True, interactive=True),
             formatted_df_view
         )
@@ -561,10 +542,14 @@ def chart_selection(champion_name, target_type, post_period, inf_df, did_daily_d
     """
     Selects and builds the correct counterfactual and cumulative subplots based on the champion model.
     """
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import numpy as np
+    import pandas as pd
 
     # 1. Clear memory to prevent Gradio UI memory leaks
-    # plt.clf()
-    # plt.close('all')
+    plt.clf()
+    plt.close('all')
     sns.set_theme(style="darkgrid")
 
     # ---------------------------------------------------------
@@ -743,25 +728,18 @@ def design_summary_choosen_design(match_selection, matched_designs, optimal_test
     try:
         # --- UI Safety Checks ---
         if not matched_designs or optimal_testing_data is None or not match_selection:
-            return gr.update(value="⚠️ Please run the Match Market Analysis first and select a design.", visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+            return gr.update(value="⚠️ Please run the Match Market Analysis first and select a design.", visible=True)
 
         try:
             selected_index = int(match_selection.split()[-1]) - 1
         except (ValueError, AttributeError, IndexError):
-            return gr.update(value="⚠️ Invalid match selection format.", visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+            return gr.update(value="⚠️ Invalid match selection format.", visible=True)
 
         if selected_index < 0 or selected_index >= len(matched_designs):
-            return gr.update(value="⚠️ Match number out of bounds.", visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+            return gr.update(value="⚠️ Match number out of bounds.", visible=True)
 
         alpha_val = 0.1
         chosen_design = matched_designs[selected_index]
-        score_dict = matched_designs[selected_index].score.score._asdict()
-        pprint.pprint(score_dict)
-        raw_corr = score_dict.get('corr', 0)
-        aa_test_status = "Passed (Pre-period balance verified)" if score_dict.get('aa_test') == 1 else "Failed (Unbalanced baseline)"
-        drift_status = "Passed (Parallel trends confirmed)" if score_dict.get('bb_test') == 1 else "Failed (Drift detected)"
-        autocorr_status = "Passed (No severe autocorrelation)" if score_dict.get('dw_test') == 1 else "Failed (Autocorrelation detected)"
-        
         treatment_geos = list(chosen_design.treatment_geos)
         control_geos = list(chosen_design.control_geos)
         iroas_or_cpa = minimum_detectable_iROAS
@@ -774,71 +752,6 @@ def design_summary_choosen_design(match_selection, matched_designs, optimal_test
 
         treat_df = ml_data[ml_data[geo_column].isin(treatment_geos)].groupby(date_column)[target_column].sum().reset_index().rename(columns={target_column: 'y_treat'})
         ctrl_df = ml_data[ml_data[geo_column].isin(control_geos)].groupby(date_column)[target_column].sum().reset_index().rename(columns={target_column: 'X_ctrl'})
-        
-        treatment_ts = ml_data[ml_data[geo_column].isin(treatment_geos)].groupby(date_column)[target_column].sum().reset_index()
-        control_ts = ml_data[ml_data[geo_column].isin(control_geos)].groupby(date_column)[target_column].sum().reset_index()
-        
-        
-        # Scale Control to match Treatment
-        # 2. Scale Control to match Treatment
-        scaling_factor = treatment_ts[target_column].sum() / control_ts[target_column].sum()
-        control_ts['Scaled_Control'] = control_ts[target_column] * scaling_factor
-
-        # # Generate the Plotly Express chart
-        # fig_corr_plot = go.Figure()
-
-        # # Add Treatment line
-        # fig_corr_plot.add_trace(go.Scatter(
-        #     x=treatment_ts[date_column], 
-        #     y=treatment_ts[target_column],
-        #     mode='lines',
-        #     name='Treatment Group',
-        #     line=dict(color='#1a73e8', width=2)
-        # ))
-
-        # # Add Synthetic Control line
-        # fig_corr_plot.add_trace(go.Scatter(
-        #     x=control_ts[date_column], 
-        #     y=control_ts['Scaled_Control'],
-        #     mode='lines',
-        #     name='Synthetic Control',
-        #     line=dict(color='#ff9900', width=2, dash='dash')
-        # ))
-
-        # # Match the matplotlib styling and formatting
-        # fig_corr_plot.update_layout(
-        #     title=f'Market Match (Correlation: {raw_corr:.4f})',
-        #     xaxis_title='Date',
-        #     yaxis_title='Revenue',
-        #     yaxis_tickformat='$,.0f',  # Formats y-axis as currency (e.g., $1,000)
-        #     hovermode='x unified',     # Shows both values in a single hover tooltip
-        #     template='plotly_white',   # Gives a clean background with a faint grid
-        #     margin=dict(l=40, r=40, t=60, b=40)
-        # )
-        
-        # Generate the Matplotlib chart        
-        fig_corr_plot, ax_corr = plt.subplots(figsize=(20, 5))
-        
-        # Add Treatment line
-        ax_corr.plot(treatment_ts[date_column], treatment_ts[target_column], label='Treatment Group', color='#1a73e8', linewidth=2)
-        
-        # Add Synthetic Control line
-        ax_corr.plot(control_ts[date_column], control_ts['Scaled_Control'], label='Synthetic Control', color='#ff9900', linestyle='--', linewidth=2)
-        
-        # Styling and Formatting
-        ax_corr.set_title(f'Market Match (Correlation: {raw_corr:.4f})', fontsize=14, fontweight='bold')
-        ax_corr.set_xlabel('Date', fontsize=12)
-        ax_corr.set_ylabel('Revenue', fontsize=12)
-        ax_corr.legend(loc='upper left')
-        ax_corr.grid(True, alpha=0.3)
-        
-        # Formats y-axis as currency (e.g., $1,000)
-        ax_corr.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: f'${x:,.0f}'))
-        
-        # Rotate dates to prevent overlapping
-        fig_corr_plot.autofmt_xdate(rotation=45)
-        fig_corr_plot.tight_layout()
-    
 
         model_df = pd.merge(treat_df, ctrl_df, on=date_column, how='inner').sort_values(date_column)
         model_df['day_of_week'] = model_df[date_column].dt.dayofweek
@@ -1172,72 +1085,50 @@ def design_summary_choosen_design(match_selection, matched_designs, optimal_test
         end_date_str = last_date.strftime('%Y-%m-%d')
 
         estimates = [tbr_point_estimate, qrf_estimated_lift, bayesian_estimated_lift]
-        
-        
-        # Dynamically evaluate the correlation strength and assign recommendations
-        if raw_corr >= 0.90:
-            corr_descriptor = "Excellent market match"
-            status_emoji_corr = "🟢"  # Green for Excellent
-            stability_rec = f"With a {raw_corr:.4f} correlation ({corr_descriptor}), the control demographies are structurally sound and highly reliable for matching."
-            
-        elif raw_corr >= 0.80:
-            corr_descriptor = "Good market match"
-            status_emoji_corr = "🟢"  # Green for Good
-            stability_rec = f"With a {raw_corr:.4f} correlation ({corr_descriptor}), the control demographies are structurally sound for matching."
-            
-        elif raw_corr >= 0.70:
-            corr_descriptor = "Fair market match"
-            status_emoji_corr = "🟡"  # Yellow/Caution for Fair
-            stability_rec = f"With a {raw_corr:.4f} correlation ({corr_descriptor}), expect wider confidence intervals. Proceeding with this design carries a moderate risk of inaccurate measurement due to market shocks. Consider reducing the number of required treatment geos or adjusting your cluster variables."
-            
-        else:
-            corr_descriptor = "Poor market match (Caution advised)"
-            status_emoji_corr = "🔴"  # Red for Poor
-            stability_rec = f"With a {raw_corr:.4f} correlation ({corr_descriptor}), the control demographies are **NOT structurally sound**. Proceeding with this design carries a high risk of inaccurate measurement. Consider reducing the number of required treatment geos or adjusting your cluster variables."
-            
-            
-        signal_to_noise_ratio = abs(expected_business_impact) / abs(min_impact) if min_impact != 0 else 0
-        if signal_to_noise_ratio >= 3:
-            budget_recommendation = f"✅ **Strong Budget Allocation:** The expected impact ({fmt_expected_value}) is {signal_to_noise_ratio:.1f}x the Minimum Detectable Effect ({fmt_min_impact}). This provides an excellent safety margin against live-market volatility."
-        elif signal_to_noise_ratio >= 1:
-            budget_recommendation = f"⚠️ **Moderate Budget Allocation:** The expected impact ({fmt_expected_value}) clears the MDE ({fmt_min_impact}), but at only {signal_to_noise_ratio:.1f}x, the final results may be vulnerable to unexpected market noise. Consider increasing the budget if possible."
-        else:
-            budget_recommendation = f"❌ **Underfunded Test:** The expected impact ({fmt_expected_value}) is LESS than the MDE ({fmt_min_impact}). The test is highly likely to return inconclusive results. You must increase the {test_direction} budget to generate a measurable signal."
-            
-        ## * **Control Cohort (Post-Clustering):** {", ".join(control_geos[:5])} ... *(and {len(control_geos) - 5} others)*
-        executive_report_1 = inspect.cleandoc(f"""
-        # {status_emoji_corr} Geographical-Experiment Design & Power Analysis Report
 
-        This report mathematically validates the structural integrity of the matched markets prior to live execution, demonstrating how incremental value will be safely isolated from organic market volatility.
+        executive_report = inspect.cleandoc(f"""
+        # {status_emoji} Geo-Experiment Design & Power Analysis Report
 
-        ### 1. Data Laboratory & Stratification
+        This report validates the structural integrity of the matched markets prior to live execution, demonstrating exactly how incremental value will be isolated from organic demand.
+
+        ### 1. Data Laboratory
         * **{total_raw_geos}** Geos Total evaluated in the market pool.
         * **{total_days}** Days of historical daily data analyzed.
         * **Date range:** {start_date_str} to {end_date_str}
-        * **Control Cohort (Post-Clustering):** {", ".join(control_geos)} ... *(total of {len(control_geos)} controlled geographies)*
+        * **List of Control Geos Evaluated:** {", ".join(control_geos)}
 
         ### 2. Primary Incrementality Metrics (Simulation)
         * **Intervention Strategy:** {test_direction} Test
-        * **Minimum Detectable Effect (MDE):** {fmt_min_impact}
-            *(Based on pre-period variance and correlation of matched geos. While the business target exceeds this threshold, to guarantee conclusive results despite unobserved live-market volatility, the target should ideally be 3x to 4x the MDE).*
+        * **{cost_label}:** {fmt_spend}
+        * **{revenue_label}:** {fmt_expected_value} {revenue_context}
         * **Statistical Tests:** α = {alpha_val} (two-sided), Power = 0.80
 
-        ### 3. Structural Validity & Safety Gates
-        * **Correlation (R):** {raw_corr:.4f} *({corr_descriptor})*
-        * **AA Test:** {aa_test_status}
-        * **Drift Check:** {drift_status} 
-        * **Residual Independence (DW):** {autocorr_status}
-        """)
-        
-        executive_report_2 = inspect.cleandoc(f"""
+        ### 3. Statistical Validity & Confidence
+        * **Minimum Detectable Effect (MDE):** {fmt_min_impact}
+          *(Based on pre-period variance and correlation of matched geos; the business goal exceeds this threshold, to guarantee conclusive results despite real-world volatility, the business goal should ideally be 3x to 4x this threshold).*
+
+        To prevent algorithmic bias, the simulated intervention was evaluated by an ensemble of three distinct mathematical frameworks:
+        * **Frequentist DiD Estimate:** {fmt_tbr} *(Error from true lift: {abs_pct:.2f}%)*
+        * **Machine Learning QRF Estimate:** {fmt_qrf} *(Error: {qrf_absolute_error_pct:.2f}%)*
+        * **Bayesian Structural Time-Series:** {fmt_bayes} *(Error: {bayesian_absolute_error_pct:.2f}%)*
+
+        * **Model Diagnostics (Pre-Period Fit):** * DiD (RMSE: {prefix}{tbr_rmse:,.0f}, R²: {tbr_r2:.2f})
+          * QRF (RMSE: {prefix}{qrf_rmse:,.0f}, R²: {qrf_r2:.2f})
+          * STS (RMSE: {prefix}{bayes_rmse:,.0f});
+        * **90% Confidence Interval:** [{fmt_lower}, {fmt_upper}]
+        * **Ensemble Point Estimate Range:** [{format_metric(min(estimates), prefix)} to {format_metric(max(estimates), prefix)}]
+        * **Statistical Significance:** {significance_text}
+
         ### 4. Experiment Phases & Timelines
         * **Pre-Test Baseline Phase:** {pre_period[0]} to {pre_period[1]} *(Used to train the counterfactual).*
         * **Test Period Phase:** {post_period[0]} to {post_period[1]} *(Length: {experiment_duration} Days).*
+        * **Cooldown Period:** To be monitored for 7-14 days post-intervention to capture trailing conversion windows.
 
         ### 5. Strategic Recommendations
-        * **Signal-to-Noise Verification:** {budget_recommendation}
-        * **Market Stability:** {stability_rec}
-        * **Execution Constraints:** Ensure no national promotions or overlapping marketing campaigns are launched during the {experiment_duration}-day test period, as asymmetric external shocks will invalidate the {test_direction} measurement.
+        * **Validation Verdict:** {validation_verdict}
+        * **Channel Viability:** If the live test recovers the target {iroas_or_cpa} {efficiency_label}, it proves the marketing channel is highly viable and driving true net-new value.
+        * **Budget Optimization (Saturation):** A target return of {iroas_or_cpa} indicates the {lever_noun} in these specific markets is not yet saturated. The test will confirm there is still profitable room to grow.
+        * **Sensitivity & Generalizability:** Results are robust to varying pre-period (21-35 days) and post-period (5-14 days) windows. The {len(treatment_geos) + len(control_geos)} retained DMAs represent dense markets; extrapolating to the discarded volatile/noise markets is a recognized limitation.
         """)
 
         # =========================================================================
@@ -1346,11 +1237,9 @@ def design_summary_choosen_design(match_selection, matched_designs, optimal_test
         # STEP 4: GRADIO STATE STATE MANAGEMENT & DYNAMIC SHOW/HIDE
         # =========================================================================
         return (
-            gr.update(value=executive_report_1, visible=True),
+            gr.update(value=executive_report, visible=True),
             gr.update(value=final_figure, visible=True),
-            gr.update(value=fig_tri, visible=True),
-            gr.update(value=fig_corr_plot, visible=True),
-            gr.update(value=executive_report_2, visible=True),
+            gr.update(value=fig_tri, visible=True)
         )
 
     except Exception as e:
@@ -1359,9 +1248,7 @@ def design_summary_choosen_design(match_selection, matched_designs, optimal_test
         return (
             gr.update(value=report_md, visible=True),
             gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False),
+            gr.update(visible=False)
         )
 
 # @title Core Functions and Model For Test Analysis Phase
@@ -1457,7 +1344,7 @@ def generate_geo_facet_plot(df, geo_col, date_col, target_col, selected_geos):
         return fig
 
     except Exception as e:
-        
+        import traceback
         print(f"Plotting Error: {traceback.format_exc()}")
         return None
 
@@ -1819,6 +1706,7 @@ def diagnostic_plots(full_timeline_df, target_col, date_col, cost_col, true_lift
         return fig_waterfall, fig_timeseries
 
     except Exception as e:
+        import traceback
         error_fig = go.Figure()
         error_fig.add_annotation(text=f"❌ Plot Crashed!<br>{str(e)}", x=0.5, y=0.5, showarrow=False, font=dict(size=16, color="white"), bgcolor="red")
         return error_fig, error_fig
@@ -2013,9 +1901,7 @@ def undo_last_rule(current_model):
 
 def run_sem(model_string, state_list, target):
     if not model_string.strip():
-        # return "Model is empty. Please build rules first.", None
-        # Return an empty dataframe, empty string, and None to match the 3 expected UI outputs
-        return pd.DataFrame({"Status": ["Model is empty. Please build rules first."]}), "", None
+        return "Model is empty. Please build rules first.", None
 
     # data = state_list[0].copy()
     data = state_list.copy()
@@ -2065,10 +1951,8 @@ def run_sem(model_string, state_list, target):
         return inspect_df,  pretty_weights_string, plot_image
 
     except Exception as e:
-        # error_msg = f"<div style='color: red; text-align: center;'>Error: {str(e)}</div>"
-        # return error_msg, None
-        error_df = pd.DataFrame({"Error": [f"SEM Fit Failed: {str(e)}"]})
-        return error_df, "", None
+        error_msg = f"<div style='color: red; text-align: center;'>Error: {str(e)}</div>"
+        return error_msg, None
 
 
 def run_auto_causal(data_state, target_col, drop_cols_list):
@@ -2165,15 +2049,14 @@ def run_auto_causal(data_state, target_col, drop_cols_list):
     for u, v, data in G.edges(data=True):
         edge_labels[(u, v)] = f"{data['estimate']:.2f}\n(p={data['pval']:.3f})"
 
-    nx.draw_networkx_edge_labels(G, pos, ax=ax, edge_labels=edge_labels, font_color='black', font_size=0)
+    nx.draw_networkx_edge_labels(G, pos, ax=ax, edge_labels=edge_labels, font_color='black', font_size=8)
 
     ax.set_title("Causal Discovery Graph", fontsize=16, fontweight='bold')
     ax.axis('off')
     fig.tight_layout()
 
     # Return the Matplotlib Figure and the generated SEM syntax
-    # return fig, generated_sem_syntax
-    return generated_sem_syntax
+    return fig, generated_sem_syntax
 
 
 def generate_empirical_causal_weights(sem_df, target_col='revenue', alpha=0.10):
@@ -2363,9 +2246,6 @@ def openai_access(content):
         return f"Error: {str(e)}"
 
 def explain_sem_results(inspect_df, target_col='revenue'):
-    if inspect_df is None or (isinstance(inspect_df, pd.DataFrame) and 'op' not in inspect_df.columns):
-        return gr.update(value="### ⚠️ Error: No valid SEM results found. Please click 'Fit SEM Model' first.", visible=True), None, target_col
-
     # 1. Isolate directed paths
     paths_df = inspect_df[inspect_df['op'] == '~'].copy()
 
@@ -2510,15 +2390,20 @@ def update_target_label(target):
     else:
         return gr.update(label="Approximate channel CPA")
 
-def reveal_sem_manual_builder():
-    return [
-        gr.update(visible=True),  # for sem_builder_title
-        gr.update(visible=True),  # for category_note
-        gr.update(visible=True),  # for relationship_type
-        gr.update(visible=True),  # for drivers
-        gr.update(visible=True)   # for add_btn
-    ]
-    
+# Create a "Black Hole" context manager
+@contextlib.contextmanager
+def suppress_stdout_stderr():
+    with open(os.devnull, "w") as devnull:
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = devnull
+        sys.stderr = devnull
+        try:
+            yield
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+
 # ==========================================
 # 3. GRADIO APP
 # ==========================================
@@ -2567,33 +2452,31 @@ with gr.Blocks(theme=gr.themes.Soft(), fill_width=True) as app:
 
                 auto_causal_btn = gr.Button("Run Auto Causal Discovery", variant="primary")
 
-                sem_builder_title = gr.Markdown("### 3. SEM Manual Relationship Builder", visible=False)
+                gr.Markdown("### 3. SEM Relationship Builder")
 
-                category_note = gr.Textbox(label="Category / Note (Optional)", placeholder="e.g., Funnel Mechanics", visible=False)
+                category_note = gr.Textbox(label="Category / Note (Optional)", placeholder="e.g., Funnel Mechanics")
 
                 relationship_type = gr.Radio(
                     choices=["Regression (Drives)", "Covariance (Shared Variance)"],
                     value="Regression (Drives)",
-                    label="Relationship Type",
-                    visible=False
+                    label="Relationship Type"
                 )
 
 
                 drivers = gr.Dropdown(
                     choices=[],
                     multiselect=True,
-                    label="Drivers / Correlates (X)",
-                    visible=False
+                    label="Drivers / Correlates (X)"
                 )
 
-                add_btn = gr.Button("Add Rule to Model", variant="primary", visible=False)
+                add_btn = gr.Button("Add Rule to Model", variant="primary")
 
 
                # --- RIGHT COLUMN: The Output ---
               with gr.Column(scale=5):
-                #   gr.Markdown("### Discovered Causal Graph")
+                  gr.Markdown("### Discovered Causal Graph")
                   #Plot component for Matplotlib
-                #   causal_plot_output = gr.Plot(label="DirectLiNGAM Graph")
+                  causal_plot_output = gr.Plot(label="DirectLiNGAM Graph")
 
                   gr.Markdown("### Generated `semopy` Script")
 
@@ -2674,7 +2557,7 @@ with gr.Blocks(theme=gr.themes.Soft(), fill_width=True) as app:
 
                 experiment_date = gr.Number(
                     label="Experiment Length (Days)",
-                    value=7,
+                    value=8,
                     visible=False
                 )
 
@@ -2685,21 +2568,11 @@ with gr.Blocks(theme=gr.themes.Soft(), fill_width=True) as app:
                     visible=False
                 )
 
-                max_allowed_cost = gr.Number(label="Maximum Allowed Budget Cost", value=350000, visible=False)
+                max_allowed_cost = gr.Number(label="Maximum Allowed Budget Cost", value=350000, visible=False, interactive=False)
 
                 planned_budget = gr.Number(
                     label="Budget to Add",
-                    value=25000,
-                    visible=False
-                )
-                
-                # --- OPTIONAL: SLIDER HERE ---
-                max_treat_geos = gr.Slider(
-                    minimum=3,
-                    maximum=50,
-                    step=1,
-                    value=20,
-                    label="Maximum Treatment Geos",
+                    value=15000,
                     visible=False
                 )
 
@@ -2738,12 +2611,8 @@ with gr.Blocks(theme=gr.themes.Soft(), fill_width=True) as app:
                 cluster_plot = gr.Plot(label="Geo Clusters")
                 mm_results_table = gr.Dataframe(label="Matched Market Designs")
                 summary_output_text = gr.Markdown(visible=False)
-                # ci_plot_output = gr.Plot(label="CausalImpact Counterfactual Fit", visible=False)
-                ci_plot_output = gr.State()
-                # tri_plot_output = gr.Plot(label="Triangulated Ensemble Bounds", visible=False)
-                tri_plot_output = gr.State()
-                corr_plot_output = gr.Plot(label="Pre-Period Trend Verification", visible=False)
-                summary_output_text_2 = gr.Markdown(visible=False)
+                ci_plot_output = gr.Plot(label="CausalImpact Counterfactual Fit", visible=False)
+                tri_plot_output = gr.Plot(label="Triangulated Ensemble Bounds", visible=False)
 
         # --- TAB 3: RESULT ANALYSIS ---
         with gr.Tab("Post-Planning Result Analysis", id="analyze_tab"):
@@ -2851,7 +2720,6 @@ with gr.Blocks(theme=gr.themes.Soft(), fill_width=True) as app:
             status_label, cluster_plot,
             cluster_filter, test_direction, target_type, minimum_detectable_iROAS,
             experiment_date, max_allowed_cost, planned_budget,
-            max_treat_geos, # <--- Add the slider here!
             required_test_geo_arm, exclude_from_test_geo_arm, exclude_completely,
             mamtchmarket_button, clustered_data_state
         ]
@@ -2866,10 +2734,9 @@ with gr.Blocks(theme=gr.themes.Soft(), fill_width=True) as app:
     mamtchmarket_button.click(
         fn=run_match_market,
         inputs=[
-            clustered_data_state, cluster_filter, target_column, cost_column, geo_column, date_column,
+            clustered_data_state, cluster_filter, target_column, geo_column, date_column,
             target_type, test_direction, minimum_detectable_iROAS,
             experiment_date, max_allowed_cost, planned_budget,
-            max_treat_geos, # <--- Add the slider here!
             required_test_geo_arm, exclude_from_test_geo_arm, exclude_completely
         ],
         outputs=[status_label, mm_results_table_state, geolist_state,               # 3. INVISIBLE: Stores df_geolist
@@ -2899,7 +2766,7 @@ with gr.Blocks(theme=gr.themes.Soft(), fill_width=True) as app:
             planned_budget,              # 12. budget_cut
             mm_results_table_state       # 13. The visible Gradio Dataframe from run_match_market
         ],
-        outputs=[summary_output_text, ci_plot_output, tri_plot_output, corr_plot_output, summary_output_text_2]    # Outputs to the Markdown component
+        outputs=[summary_output_text, ci_plot_output, tri_plot_output]    # Outputs to the Markdown component
     )
 
     # Tab 3: RESULT ANALYSIS VARIABLE
@@ -2981,18 +2848,7 @@ with gr.Blocks(theme=gr.themes.Soft(), fill_width=True) as app:
     auto_causal_btn.click(
             fn=run_auto_causal,
             inputs=[sem_data_state, target, drop_cols],
-            outputs=[model_display]
-            # outputs=[causal_plot_output, model_display]
-        ).then(
-            fn=reveal_sem_manual_builder,
-            inputs=None,
-            outputs=[
-                sem_builder_title, 
-                category_note, 
-                relationship_type, 
-                drivers, 
-                add_btn
-            ]
+            outputs=[causal_plot_output, model_display]
         )
 
     add_btn.click(
@@ -3030,6 +2886,22 @@ with gr.Blocks(theme=gr.themes.Soft(), fill_width=True) as app:
         inputs=[model_display],
         outputs=[model_display]
     )
+
+    # # Tab 3: RESULT ANALYSIS VARIABLE
+    # geo_breakdown_btn.click(
+    #     fn=generate_geo_level_report,
+    #     inputs=[
+    #         test_data_state,      # Your full dataframe
+    #         test_group_geo,     # Dropdown or list of treatment cities
+    #         geo_column_test,
+    #         target_column_test,
+    #         cost_column_test,
+    #         date_column_test,
+    #         true_lift_state,             # Captured from your main analysis
+    #         test_end        # Captured from your main analysis
+    #     ],
+    #     outputs=[geo_breakdown_df]
+    # )
 
 
 """# Deployment"""
