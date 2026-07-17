@@ -6,13 +6,14 @@ This repository contains the codebase for a multi-stage causal framework that in
 
 ## **Table of Contents**
 
-1. [Project Overview](#bookmark=id.w2azeb2ovu0)  
-2. [The Measurement Challenge](#bookmark=id.97wctevpfnsk)  
-3. [Methodological Objectives](#bookmark=id.2sq3rtcymfo5)  
-4. [System Architecture & Workflow](#bookmark=id.8jrfsado30az)  
-5. [Repository Structure](#bookmark=id.w6tv7yrf8eoe)  
-6. [Execution Manual (Docker Deployment)](#bookmark=id.d9vt6clfbp3c)  
-7. [Significance & Generalizability](#bookmark=id.r728cg9or166)
+1. [Project Overview](#bookmark=id.xmnnshm0upf3)  
+2. [The Measurement Challenge](#bookmark=id.c1yckk7weig6)  
+3. [Methodological Objectives](#bookmark=id.k1w4vr6ij3iy)  
+4. [System Architecture & Workflow](#bookmark=id.wcijm8vi86cr)  
+5. [Repository Structure](#bookmark=id.xy4wswpm8z9c)  
+6. [Input Dataset Schema Requirements](#bookmark=id.mnrxrats51m4)  
+7. [Execution Manual (Docker Deployment)](#bookmark=id.dr8nyvfa8dw)  
+8. [Significance & Generalizability](#bookmark=id.jnftk2ojryys)
 
 ## **Project Overview**
 
@@ -74,13 +75,24 @@ The system operationalizes a linear, five-stage methodological workflow transiti
 
 The entire pipeline has been transitioned from a notebook environment into a production-ready, containerized application using Docker.
 
-├── app.py                       \# Core Python application and Gradio UI  
-├── Dockerfile                   \# Container blueprint (Python 3.12 Bookworm \+ system dependencies)  
-├── requirements.txt             \# Python package dependencies (with locked versions for stability)  
-├── .env                         \# Local environment variables (API keys)  
-├── data/                        \# (Optional) Directory for your raw datasets  
-└── docs/                        \# Local environment variables (API keys)  
-    └── README.md                \# System instruction manual (this file)
+    ├── app.py                       # Core Python application and Gradio UI    
+    ├── Dockerfile                   # Container blueprint (Python 3.12 Bookworm)    
+    ├── requirements.txt             # Python package dependencies     
+    ├── .env                         # Local environment variables (API keys)    
+    ├── data/                        # Directory for raw datasets    
+    ├── docs/                        # Directory for the paper  
+    │   └── screenshots/             # Folder for the images
+    └── README.md                    # System instruction manual
+
+## **Input Dataset Schema Requirements**
+
+To evaluate or run the pipeline, ensure your uploaded CSV or Excel file contains the following columnar architecture:
+
+1. **Temporal Identifier:** A date column (e.g., YYYY-MM-DD or DD-MM-YYYY).  
+2. **Geographical Unit:** A regional market identifier column (e.g., DMA, city, or region).  
+3. **Target Financial KPI:** A continuous numerical variable representing the primary outcome optimization metric (e.g., revenue or conversions).  
+4. **Controllable Investment Levers:** One or more continuous numerical columns representing multi-channel media spend levers (e.g., cost\_brand, cost\_pmax, cost\_demandgen).  
+5. **Behavioral Mediators (Optional):** Intermediate metric columns tracking customer actions (e.g., total\_visits, total\_orders).
 
 ## **Execution Manual (Docker Deployment)**
 
@@ -88,36 +100,54 @@ This application is fully containerized to ensure cross-platform consistency and
 
 ### **1\. Environment Configuration**
 
-Create a .env file in the root directory of the repository. Add your OpenAI API key to this file to enable the automated causal explanations. Ensure this file is added to your .gitignore to prevent exposing your credentials.
+Create a .env file in the root directory of the repository. Add an OpenAI API key configuration line to enable the automated causal explanations. Ensure this file remains outside version control to maintain anonymity.
 
-SEM\_OpenAI=sk-your-actual-api-key-here
+Note: The system explicitly expects the environment variable to be named SEM_OpenAI (update this to GLOBAL_OPENAI_KEY if your underlying app.py script uses that name instead).
+
+    SEM_OpenAI=sk-your-actual-api-key-here
 
 ### **2\. Build the Docker Image**
 
 Open your terminal, navigate to the project directory, and build the Docker image. This process installs the underlying OS dependencies (Graphviz, Bazel, Git) and Python libraries.
 
-docker build \--no-cache \-t my-geolift-app .
+    docker build --no-cache -t my-geolift-app .
 
 ### **3\. Launch the Application**
 
-Run the container and map the internal Gradio port to an available port on your host machine (e.g., 14523). The command below also exposes ports for debugging and injects your API key.
+Run the container and map the internal Gradio port to an available port on your host machine (e.g., 14523). The command below also exposes ports for debugging and injects your API key environment configuration.
 
-docker run \-p 14523:7860 \-p 5678:5678 \-p 8080:8080 \--env-file .env my-geolift-app
+    docker run -p 14523:7860 -p 5678:5678 -p 8080:8080 --env-file .env my-geolift-app
 
-### **4\. Access the Interface**
+### **4\. Accessing and Navigating the Interface**
 
-Once the terminal indicates the server is running, open your web browser and navigate to:
+Once the terminal indicates the server is running, open your web browser and navigate to: **http://localhost:14523**
 
-**http://localhost:14523**
+#### **Tab 1: Pre-Test Design (SEM & Discovery)**
 
-The Gradio application will walk you through the ecosystem:
+* **Step 1:** Upload your historical daily time-series dataset using the file upload box.  
+* **Step 2:** Select your target variable (![][image1]) from the drop-down menu, choose variables to drop, and click **"Run Auto Causal Discovery"** to instantly map the underlying directed acyclic graph (DAG) via the DirectLiNGAM algorithm.  
+* **Step 3:** Use the manual relationship builder to define structural pathways or directly edit the generated semopy script. Click **"Fit SEM Model"** to view standard errors, path coefficients, and structural path diagrams.  
+* **Step 4:** Click **"✨ Finalize Results"** to trigger the background Python causal engine. This translates raw structural parameters into compressed, anchored empirical weights for stratification.
 
-* **Tab 1: Pre-Test Design (SEM & Discovery):** Upload your time-series CSV/Excel data here to run Auto Causal Discovery (LiNGAM) or build your SEM model to generate causal priors.  
-* **Tab 2: Pre-Test Planning:** Execute the DBSCAN Cluster Outlier Analysis, set your budget constraints, and run the Match Market Analysis to generate validated pairs.  
-* **Tab 3: Post-Planning Result Analysis:** Upload post-test data to evaluate the synthetic vs. actual lift using the triangulated model approach.
+    ![Design Phase Screenshot](docs/screenshots/Design.png)
+
+#### **Tab 2: Pre-Test Planning**
+
+* **Step 1:** After completing Tab 1, the dataset and derived causal weights will automatically carry over. Click **"Run Cluster Outlier Analysis"** to visualize the weighted DBSCAN scatter plot, dividing your markets into homogeneous cohorts while filtering unmatchable noise.  
+* **Step 2:** Select the target clusters to evaluate, define your budget parameters (e.g., target iROAS, experiment length, planned spending changes), and click **"Match Market Analysis"**. The system executes a localized cluster-constrained greedy search using Time-Based Regression.  
+* **Step 3:** Review the generated table mapping valid pairs alongside diagnostic safety test statuses (A/A Placebo pass rates, Durbin-Watson auto-correlation ranges, and Brownian Bridge drift checks). Select a match and click **"Generate Design Summary"** to visualize counterfactual tracking alignment and power boundary analysis curves.
+
+#### **Tab 3: Post-Planning Result Analysis**
+
+* **Step 1:** Once your field experiment concludes, upload the compiled actual performance dataset.  
+* **Step 2:** Map your target, cost, date, geo, and period indicator columns using the side panel dropdowns. Click **"Generate Pre-Test & Test Result"** to project cross-validation prediction tracking curves.  
+* **Step 3:** Review the automated execution report showing absolute incremental costs, true generated revenue lift boundaries at specified confidence intervals, and the triangulation ensemble bar chart evaluating consensus across Frequentist DiD, Machine Learning QRF, and Bayesian STS frameworks.
+
+    ![Plan Phase Screenshot](docs/screenshots/Plan.png)
 
 ## **Significance & Generalizability**
 
-This project fundamentally advances modern marketing science by bridging correlational Media Mix Modeling with rigorous experimental lift studies. By constraining the greedy matching algorithm within density-based cohorts, the framework formally neutralizes the treatment effect heterogeneity problem.
+This study fundamentally advances modern marketing science by bridging correlational Media Mix Modeling with rigorous experimental lift studies. By constraining the greedy matching algorithm within density-based cohorts, the framework formally neutralizes the treatment effect heterogeneity problem.
 
 Furthermore, the integration of a methodological triangulation approach moves the industry away from fragile single-point estimates toward a highly credible, consensus-based causal inference standard. This ensures a verified signal detection capability, drastically reducing the risk of misallocating multi-million dollar budgets due to unobserved market noise.
+
