@@ -107,11 +107,12 @@ def populate_date_choices(file, date_col):
         return gr.update(choices=[], interactive=False)
 
 
+
 def run_clustering(df, target_col, cost_col, additional_cols, date_col, geo_col, exclude_dates, weight_str):
     additional_cols = additional_cols or []
 
     if df is None or not target_col or not cost_col or not geo_col:
-      return "⚠️ Please upload a dataset and select all required columns.", None, *([gr.update(visible=False)] * 12), None
+      return "⚠️ Please upload a dataset and select all required columns.", None, None, *([gr.update(visible=False)] * 12), None
 
     try:
         # 2. 🧠 PARSE SEM WEIGHTS AND TRANSLATE (THE BRIDGE)
@@ -220,20 +221,18 @@ def run_clustering(df, target_col, cost_col, additional_cols, date_col, geo_col,
         for col in additional_cols:
             if col not in [target_col, cost_col]:
                 hover_data_dict[f'avg_{col}'] = ':.2f'
-
-        # 5B. Determine Bubble Size 
+        
         size_variable = None
         if additional_cols:
-            # Safely loop through the selected columns until we find one that isn't Target or Cost
-            for col in additional_cols:
-                if col not in [target_col, cost_col]:
-                    size_variable = f'avg_{col}'
-                    
-                    # Optional: Plotly crashes if bubble sizes are negative. 
-                    # We can take the absolute value just to be completely safe in Docker.
-                    geo_features[size_variable] = geo_features[size_variable].abs()
-                    break  # Stop as soon as we find a valid size variable!
+            # Create a list of the exact column names as they appear in geo_features
+            cols_to_combine = [f"avg_{col}" for col in additional_cols if col not in [target_col, cost_col]]
+            
+            if cols_to_combine:
+                # Sum the absolute values of all those columns row by row (axis=1)
+                geo_features["All_Attributed_Factors"] = geo_features[cols_to_combine].abs().sum(axis=1)
+                size_variable = "All_Attributed_Factors"
 
+        
         # 5C. Generate the Scatter Plot
         fig = px.scatter(
             geo_features,
@@ -244,20 +243,73 @@ def run_clustering(df, target_col, cost_col, additional_cols, date_col, geo_col,
             hover_name=geo_col,
             hover_data=hover_data_dict,
             title="Market Cohorts (DBSCAN) | Hover for Geo Details",
-            labels={'avg_revenue': 'Avg Revenue', 'avg_cost': x_axis_label, 'Cluster_Label': 'Cohort'},
+            labels={'avg_revenue': 'Revenue', 'avg_cost': cost_col, 'Cluster_Label': 'Cohort'},
             template="plotly_white",
-            size_max=45,  # FIX 1: Caps the maximum bubble size so outliers don't shrink the rest
-            # FIX 2: Darkened the Noise color so it doesn't vanish into the white background!
+            size_max=45,  # Caps the maximum bubble size so outliers don't shrink the rest
             color_discrete_map={"Noise (Outliers)": "rgba(40, 40, 40, 0.85)"} 
         )
 
         if size_variable:
-            # FIX 3: Increased sizemin from 5 to 10 so small markets are highly visible
             fig.update_traces(marker=dict(sizemin=10, sizemode='area', line=dict(width=1, color='DarkSlateGrey')))
         else:
             fig.update_traces(marker=dict(size=14, line=dict(width=1, color='DarkSlateGrey')))
 
         fig.update_layout(xaxis_tickformat='$,.0f', yaxis_tickformat='$,.0f')
+
+
+        # =====================================================================
+        # 7. PARALLEL PLOT (Using pre-computed scaled and weighted features)
+        # =====================================================================
+        
+        # Attach the cluster labels to the exact dataframe DBSCAN evaluated
+        scaled_df['Cluster_Label'] = geo_features['Cluster_Label']
+        
+        # Calculate the mean of the weighted & scaled features for each cohort
+        cluster_profiles = scaled_df.groupby('Cluster_Label')[features_to_scale].mean().reset_index()
+        
+        # Melt for Seaborn
+        melted_scaled = cluster_profiles.melt(
+            id_vars='Cluster_Label', 
+            var_name='Feature', 
+            value_name='Scaled Value'
+        )
+
+        new_melted_scaled = melted_scaled.copy()
+        new_melted_scaled['Feature'] = new_melted_scaled['Feature'].str.replace('avg_cost', cost_col)
+        new_melted_scaled['Feature'] = new_melted_scaled['Feature'].str.replace('avg_', '')
+        
+        # Dynamically create the palette_map for seaborn to mirror Plotly's structure
+        unique_cluster_labels = sorted(geo_features['Cluster_Label'].unique())
+        palette_map = {}
+        color_palette = sns.color_palette("tab10", len(unique_cluster_labels))
+        color_idx = 0
+        for label in unique_cluster_labels:
+            if "Noise" in label:
+                palette_map[label] = "#282828" # Dark Grey mimicking rgba(40,40,40,0.85)
+            else:
+                palette_map[label] = color_palette[color_idx]
+                color_idx += 1
+
+        # Generate the Parallel Coordinates Plot
+        fig_parallel, ax_parallel = plt.subplots(figsize=(12, 6))
+        sns.lineplot(
+            data=new_melted_scaled, 
+            x='Feature', 
+            y='Scaled Value', 
+            hue='Cluster_Label', 
+            palette=palette_map,
+            marker='o', 
+            linewidth=2,
+            ax=ax_parallel
+        )
+        
+        ax_parallel.set_title('Cluster Profiles: Scaled & Weighted Feature Averages', fontsize=14, pad=15, fontweight="bold")
+        ax_parallel.tick_params(axis='x', rotation=45)
+        ax_parallel.grid(True, linestyle='--', alpha=0.6)
+        ax_parallel.legend(bbox_to_anchor=(1.05, 1), loc="upper left", borderaxespad=0.0)
+        fig_parallel.tight_layout()
+
+
         # =====================================================================
 
         noise_count = len(geo_features[geo_features['cluster'] == -1])
@@ -268,7 +320,9 @@ def run_clustering(df, target_col, cost_col, additional_cols, date_col, geo_col,
         status_msg = f"✅ Analysis Complete! Grouped {valid_count} markets into {num_clusters} valid clusters. Automatically isolated {noise_count} noisy outliers."
 
         return (
-            status_msg, fig,
+            status_msg, 
+            fig,          # The Plotly bubble chart
+            fig_parallel, # The new Seaborn parallel coordinates plot
             gr.update(choices=cluster_choices, visible=True, interactive=True),
             gr.update(visible=True, interactive=True),
             gr.update(visible=True, interactive=True),
@@ -285,8 +339,8 @@ def run_clustering(df, target_col, cost_col, additional_cols, date_col, geo_col,
         )
 
     except Exception as e:
-        return f"❌ Error: {str(e)}", None, *([gr.update(visible=False)] * 12), None
-
+        # Pushed an extra 'None' here to match the expanded successful return signature
+        return f"❌ Error: {str(e)}", None, None, *([gr.update(visible=False)] * 12), None
 
 def update_geo_dropdowns(df_clustered, cluster_selection, geo_col):
     if df_clustered is None or not cluster_selection or not geo_col:
@@ -2730,6 +2784,7 @@ with gr.Blocks(theme=gr.themes.Soft(), fill_width=True) as app:
                 status_label = gr.Markdown("Upload data to begin.")
                 data_view = gr.Dataframe(label="Dataset Preview (First 5 rows)")
                 cluster_plot = gr.Plot(label="Geo Clusters")
+                parallel_plot = gr.Plot(label="Parallel Coordinates Plot")
                 mm_results_table = gr.Dataframe(label="Matched Market Designs")
                 summary_output_text = gr.Markdown(visible=False)
                 # ci_plot_output = gr.Plot(label="CausalImpact Counterfactual Fit", visible=False)
@@ -2842,7 +2897,7 @@ with gr.Blocks(theme=gr.themes.Soft(), fill_width=True) as app:
             sem_weights
         ],
         outputs=[
-            status_label, cluster_plot,
+            status_label, cluster_plot, parallel_plot,
             cluster_filter, test_direction, target_type, minimum_detectable_iROAS,
             experiment_date, max_allowed_cost, planned_budget,
             max_treat_geos, # <--- Add the slider here!
